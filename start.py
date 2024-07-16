@@ -59,7 +59,7 @@ print(train_df.head())
 
 def tensor_from_path(path):
     arr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-    arr = cv2.resize(arr, (224,224))
+    arr = cv2.resize(arr, IMAGE_SIZE)
     arr = arr / 255
     if len(arr.shape) == 3:
         tensor = torch.tensor(arr).permute(2,0,1)
@@ -104,26 +104,25 @@ class Net(nn.Module):
         self.conv1 = nn.Conv2d(3, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 53 * 53, 120) 
+        self.fc1 = nn.Linear(16 * 61 * 61, 120) 
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 1)
 
     def forward(self, x):
         '''
-        starts at torch.Size([4, 3, 224, 224])
-        torch.Size([4, 6, 220, 220])
-        torch.Size([4, 6, 110, 110])
-        torch.Size([4, 16, 106, 106])
-        torch.Size([4, 16, 53, 53])
+        starts at torch.Size([4, 3, 256, 256])
+        torch.Size([4, 6, 252, 252])
+        torch.Size([4, 6, 126, 126])
+        torch.Size([4, 16, 122, 122])
+        torch.Size([4, 16, 61, 61])`
         then flattens to NN
         '''
-
         x = F.relu(self.conv1(x))
         x = self.pool(x)
         x = F.relu(self.conv2(x))
         x = self.pool(x)
-        
-        x = x.view(-1, 16 * 53 * 53)
+
+        x = x.view(-1, 16 * 61 * 61)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = torch.sigmoid(self.fc3(x))
