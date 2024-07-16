@@ -173,3 +173,98 @@ with torch.no_grad():  # we don't need gradients for test, so it will save memor
         correct += (predicted == labels).sum().item()
         print(correct,total,np.shape(predicted),np.shape(labels))
         print('Accuracy of the network on the test images: %d %%' % (100 * correct / total))
+
+
+
+
+
+
+
+
+
+
+import torch
+from torch import nn
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from torchvision import transforms
+from PIL import Image
+
+# Define the function to load and preprocess the image
+def get_img_array(img_path, size):
+    img = Image.open(img_path).convert('RGB')
+    transform = transforms.Compose([
+        transforms.Resize(size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    img = transform(img).unsqueeze(0)
+    return img
+
+# Function to generate the Grad-CAM heatmap
+def make_gradcam_heatmap(img_tensor, model, target_layer):
+    model.eval()
+    img_tensor = img_tensor.to(device)
+    
+    # Forward pass to get predictions and features from the target layer
+    features = None
+    def hook_function(module, input, output):
+        nonlocal features
+        features = output
+    
+    handle = target_layer.register_forward_hook(hook_function)
+    
+    outputs = model(img_tensor)
+    handle.remove()
+    
+    # Get the index of the predicted class
+    pred_index = outputs.argmax(dim=1).item()
+    class_output = outputs[:, pred_index]
+    
+    # Backward pass to get gradients of the target layer
+    model.zero_grad()
+    class_output.backward(retain_graph=True)
+    
+    gradients = target_layer.weight.grad
+    pooled_gradients = torch.mean(gradients, dim=[0, 2, 3])
+    
+    # Multiply each channel in the feature map by the corresponding gradient
+    for i in range(features.shape[1]):
+        features[:, i, :, :] *= pooled_gradients[i]
+    
+    # Average the channels of the feature map
+    heatmap = features.mean(dim=1).squeeze()
+    
+    # Normalize the heatmap between 0 and 1
+    heatmap = np.maximum(heatmap.cpu().detach().numpy(), 0)
+    heatmap /= heatmap.max()
+    
+    return heatmap
+
+# Define the path to the image and the target layer
+img_path = "path_to_your_image.jpg"
+target_layer = net.conv2
+
+# Load and preprocess the image
+img_size = (256, 256)
+img_tensor = get_img_array(img_path, img_size)
+
+# Generate the Grad-CAM heatmap
+heatmap = make_gradcam_heatmap(img_tensor, net, target_layer)
+
+# Display the heatmap
+plt.matshow(heatmap)
+plt.show()
+
+# Superimpose the heatmap on the original image
+img = cv2.imread(img_path)
+heatmap = cv2.resize(heatmap, (img.shape[1], img.shape[0]))
+heatmap = np.uint8(255 * heatmap)
+heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+superimposed_img = heatmap * 0.4 + img
+
+# Display the superimposed image
+cv2.imshow('Grad-CAM', superimposed_img / 255)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
