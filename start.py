@@ -254,7 +254,7 @@ def make_gradcam_heatmap(img_tensor, model, target_layer):
     return heatmap
 
 # Define the path to the image and the target layer
-img_path = "path_to_your_image.jpg"
+img_path = "kaggle_3m\TCGA_CS_5397_20010315\TCGA_CS_5397_20010315_10.tif"
 target_layer = net.conv2
 
 # Load and preprocess the image
