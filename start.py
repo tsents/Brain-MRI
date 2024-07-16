@@ -109,9 +109,21 @@ class Net(nn.Module):
         self.fc3 = nn.Linear(84, 1)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 53 * 53)  # Adjusted based on the actual size
+        '''
+        starts at torch.Size([4, 3, 224, 224])
+        torch.Size([4, 6, 220, 220])
+        torch.Size([4, 6, 110, 110])
+        torch.Size([4, 16, 106, 106])
+        torch.Size([4, 16, 53, 53])
+        then flattens to NN
+        '''
+
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        
+        x = x.view(-1, 16 * 53 * 53)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = torch.sigmoid(self.fc3(x))
