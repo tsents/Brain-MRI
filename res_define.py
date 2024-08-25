@@ -181,8 +181,8 @@ def test_model(model,test_dl):
     accuracy = 100 * correct / total
 
     # Calculate precision and recall
-    precision = precision_score(all_labels, all_predicted)
-    recall = recall_score(all_labels, all_predicted)
+    precision = precision_score(all_labels, all_predicted,pos_label=0)
+    recall = recall_score(all_labels, all_predicted,pos_label=0)
 
     # Print the results
     print('Accuracy of the network on the test images: %d %%' % accuracy)
@@ -335,29 +335,143 @@ def visualize_ensemble_gradcam(path, ensamble, target_layers_a,target_layers_b):
         ax[1][0].imshow(mask_img, cmap='gray')
 
     # Apply Grad-CAM for ResNet
-    cam_resnet = XGradCAM(model=ensamble, target_layers=target_layers_a)
+    cam_resnet = EigenCAM(model=ensamble, target_layers=target_layers_a)
     grayscale_cam_resnet = cam_resnet(input_tensor=input_tensor)[0]
 
     # Apply Grad-CAM for EfficientNet
-    cam_efficientnet = XGradCAM(model=ensamble, target_layers=target_layers_b)
+    cam_efficientnet = EigenCAM(model=ensamble, target_layers=target_layers_b)
     grayscale_cam_efficientnet = cam_efficientnet(input_tensor=input_tensor)[0]
-
-    # Combine CAMs by averaging
-    combined_grayscale_cam = (grayscale_cam_resnet + grayscale_cam_efficientnet) / 2.0
-
-    # Overlay combined CAM on the original image
-    visualization_combined = show_cam_on_image(rgb_img, combined_grayscale_cam, use_rgb=True)
-
-    # Display the visualization
-    ax[0][1].axis('off')
-    ax[0][1].imshow(visualization_combined)
 
     # Optionally display individual CAMs
     visualization_resnet = show_cam_on_image(rgb_img, grayscale_cam_resnet, use_rgb=True)
     visualization_efficientnet = show_cam_on_image(rgb_img, grayscale_cam_efficientnet, use_rgb=True)
 
+    ax[0][1].axis('off')
+    ax[0][1].imshow(visualization_resnet)
     ax[1][1].axis('off')
-    ax[1][1].imshow(visualization_resnet, alpha=0.5)
-    ax[1][1].imshow(visualization_efficientnet, alpha=0.5)  # Combine with transparency
+    ax[1][1].imshow(visualization_efficientnet) 
 
     plt.show()
+
+
+label_classes = ['RNASeqCluster','MethylationCluster','miRNACluster','CNCluster','RPPACluster','OncosignCluster','COCCluster','histological_type','neoplasm_histologic_grade']
+
+class ImageFolderDataset(Dataset):
+    def __init__(self, root_dir, data_frame,use_device = device):
+        self.root_dir = root_dir
+        self.labels = data_frame
+        self.labels.dropna(subset=['tumor_location'], inplace=True)
+        encoder = OneHotEncoder(sparse_output=False)
+        self.rna = encoder.fit_transform(self.labels[label_classes])
+        self.transform = ToTensor()
+        self.use_device = use_device
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        label = self.labels.loc[idx, 'death01']
+        folder_name = self.labels.iloc[idx, 0]
+
+        images = []
+
+        for dir_name in os.listdir(self.root_dir):
+            if dir_name.startswith(folder_name):
+                img_folder = os.path.join(self.root_dir, dir_name)
+
+                for img_name in sorted(os.listdir(img_folder)):
+                    if not img_name.endswith('mask.tif'):
+                        img_path = os.path.join(img_folder, img_name)
+
+                        image = Image.open(img_path)
+                        image = self.transform(image)
+                        images.append(image)
+
+        images = torch.stack(images)
+
+        RNA_dat = self.rna[idx]
+        return images.float().to(self.use_device), torch.tensor([label]).float().to(self.use_device), torch.tensor(RNA_dat).float().to(self.use_device)
+
+from sklearn.preprocessing import OneHotEncoder
+from torchvision.transforms import ToTensor
+
+def death_data(use_device=device):
+    df = pd.read_csv('kaggle_3m/data.csv')
+    df.dropna(subset=['death01'], inplace=True)
+    df = df.fillna(0)
+    # df = df.replace({'death01' : class_mapping})
+
+    dataset = ImageFolderDataset(root_dir='kaggle_3m', data_frame=df,use_device=use_device)
+    train_size = int(0.8 * len(dataset))
+    test_size = len(dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, shuffle=True)
+    return train_loader,test_loader
+    
+
+def death_train(model,train_loader):
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.01,amsgrad=True)
+    num_epochs = 15
+    for epoch in range(num_epochs):
+        correct = 0
+        total = 0
+        for i, (inputs, labels,rna) in enumerate(train_loader):
+
+            outputs = model(inputs,rna)
+            loss = criterion(outputs, labels)
+
+            predicted = torch.round(outputs.data)
+            total += 1
+            # print(predicted,labels)
+            correct += (predicted == labels).sum().item()
+            loss.backward()
+
+            if i % 4 == 0: ## update the model in batches, hopefully more stable
+                optimizer.step()
+                optimizer.zero_grad()
+
+            torch.cuda.empty_cache()
+
+        accuracy = 100 * correct / total
+        print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {accuracy}%')
+
+def death_test(model, test_loader):
+    correct = 0
+    total = 0
+    all_predicted = []
+    all_labels = []
+
+    with torch.no_grad(): # In case it wasn't set on eval
+        for data in test_loader:
+            inputs, labels, rna = data
+            outputs = model(inputs, rna)
+
+
+            # Apply threshold to get binary predictions
+            predicted = torch.round(outputs.data)
+            
+            predicted = predicted.view(-1)
+            labels = labels.view(-1)
+
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+            all_predicted.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+    # # Calculate accuracy
+    accuracy = 100 * correct / total
+
+    # Calculate precision and recall
+    precision = precision_score(all_labels, all_predicted, pos_label=0)
+    recall = recall_score(all_labels, all_predicted, pos_label=0)
+
+    # Print the results
+    print('Accuracy of the network on the test images: %d %%' % accuracy)
+    print('Precision of the network on the test images: %f' % precision)
+    print('Recall of the network on the test images: %f' % recall)
