@@ -16,8 +16,8 @@ from sklearn.metrics import precision_score, recall_score
 
 
 IMAGE_SIZE = (256, 256)
-# device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cpu'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cpu'
 
 def tensor_from_path(path):
     arr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
@@ -85,16 +85,16 @@ def create_data():
 
     return train_df,test_df,val_df,train_ds,test_ds,val_ds,train_dl,test_dl,val_dl
 
-def train_resnet(resnet,train_dl,val_dl):
+def train_model(model,train_dl,val_dl):
     
     # Loss function and optimizer
     criterion = nn.BCEWithLogitsLoss()  # For binary segmentation
-    optimizer = optim.Adam(resnet.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Training loop
     num_epochs = 8
     for epoch in trange(num_epochs):
-        resnet.train()  # Set model to training mode
+        model.train()  # Set model to training mode
         running_loss = 0.0
         correct = 0
         total = 0
@@ -104,7 +104,7 @@ def train_resnet(resnet,train_dl,val_dl):
             labels = labels.to(device).float()
 
             optimizer.zero_grad()
-            outputs = resnet(images).squeeze()
+            outputs = model(images).squeeze()
 
             loss = criterion(outputs, labels)
             loss.backward()
@@ -127,7 +127,7 @@ def train_resnet(resnet,train_dl,val_dl):
         print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / len(train_dl):.4f}")
 
         # Validation
-        resnet.eval()  # Set model to evaluation mode
+        model.eval()  # Set model to evaluation mode
         val_loss = 0.0
         val_correct = 0
         val_total = 0
@@ -135,7 +135,7 @@ def train_resnet(resnet,train_dl,val_dl):
             for images, _, labels in tqdm(val_dl):
                 images = images.to(device).float()
                 labels = labels.to(device).float()
-                outputs = resnet(images).squeeze()
+                outputs = model(images).squeeze()
 
                 loss = criterion(outputs, labels)
                 val_loss += loss.item()
@@ -195,8 +195,7 @@ from pytorch_grad_cam import HiResCAM, EigenCAM,AblationCAM,XGradCAM,ScoreCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 import matplotlib.pyplot as plt
 
-def visualize_prediction(resnet,path):
-    target_layers = [resnet.layer4]
+def visualize_prediction(model,target_layers,path,methods = [XGradCAM,AblationCAM]):
     input_tensor = tensor_from_path(path).float().to(device)
     input_tensor = input_tensor.unsqueeze(0)
 
@@ -207,7 +206,9 @@ def visualize_prediction(resnet,path):
 
     fig,ax=plt.subplots(nrows=2,ncols=2)
 
-    fig.suptitle(torch.round(resnet(input_tensor).squeeze()).cpu().detach().numpy())
+    predicted_class = torch.round(model(input_tensor).squeeze()).cpu().detach().numpy()
+    title = 'True' if predicted_class else 'False'
+    fig.suptitle(title)
 
     ax[0][0].axis('off')   
     ax[0][0].imshow(rgb_img)
@@ -220,10 +221,8 @@ def visualize_prediction(resnet,path):
     ax[1][0].imshow(mask_img,cmap='gray')
 
     i = 2
-    methods = [ScoreCAM,EigenCAM]
-
     for method in methods:
-        cam = method(model=resnet, target_layers=target_layers)
+        cam = method(model=model, target_layers=target_layers)
         grayscale_cam = cam(input_tensor=input_tensor)
         grayscale_cam = grayscale_cam[0, :]
 
