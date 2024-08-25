@@ -336,11 +336,11 @@ def visualize_ensemble_gradcam(path, ensamble, target_layers_a,target_layers_b):
         ax[1][0].imshow(mask_img, cmap='gray')
 
     # Apply Grad-CAM for ResNet
-    cam_resnet = ScoreCAM(model=ensamble, target_layers=target_layers_a)
+    cam_resnet = XGradCAM(model=ensamble, target_layers=target_layers_a)
     grayscale_cam_resnet = cam_resnet(input_tensor=input_tensor)[0]
 
     # Apply Grad-CAM for EfficientNet
-    cam_efficientnet = ScoreCAM(model=ensamble, target_layers=target_layers_b)
+    cam_efficientnet = XGradCAM(model=ensamble, target_layers=target_layers_b)
     grayscale_cam_efficientnet = cam_efficientnet(input_tensor=input_tensor)[0]
 
     # Combine CAMs by averaging
