@@ -7,7 +7,7 @@ Pls follow only the final.ipynb notebook, all the other files in the repo are su
 to run you have to download
 
 ```
-pip intall torch
+pip install torch
 pip install torchvision
 pip install grad-cam
 pip install opencv-python
